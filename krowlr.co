@@ -1,11 +1,13 @@
 { DefaultHandler, Parser} = require \htmlparser
+events = require \events
 fs = require \fs
+path = require \path
 request = require \request
 soupselect = require \soupselect
 url = require \url
-winston = require \winston
 util = require \util
-events = require \events
+winston = require \winston
+
 
 select = soupselect.select
 handler = new DefaultHandler
@@ -15,9 +17,21 @@ global.error = winston.error
 global.info = winston.info
 global.warn = winston.warn
 
+APPLICATION_NAME = 'skrolr'
+
 simplify = (_url) ->
     o = url.parse _url
     return o.protocol + '//' + o.host + o.path
+
+create_dir = (dir) ->
+    if path.existsSync dir
+        stats = fs.lstatSync dir
+        if not stats.isDirectory!
+            error "Invalid cache directory #{dir}"
+    else
+        info "Creating cache directory #{dir}"
+        fs.mkdirSync dir
+
 
 class PageReference
     counter = 0
@@ -45,8 +59,13 @@ class Crawler extends events.EventEmitter
         @processed = {}
         @user_agent = 'SCHMÜTZÏ'
         @to_download = 0
-        @cache_directory = '.cache'
+        @cache_directory = '.cache/'
+        @cache_path = path.join process.env['HOME'], @cache_directory, APPLICATION_NAME
 
+        create_dir path.join process.env['HOME'], @cache_directory
+        create_dir path.join @cache_path
+        
+        info "Using cache folder #{@cache_path}"
 
     add_url: function (_url)
         @start_urls.push _url
@@ -63,7 +82,7 @@ class Crawler extends events.EventEmitter
 
     fetch: function (_url, depth = 0)
         o = url.parse _url
-        cachefname = @cache_directory + '/' + (o.host + o.path).replace /\//g, '.'
+        cachefname = @cache_path + '/' + (o.host + o.path).replace /\//g, '.'
 
         options = {uri: _url, 'User-Agent': 'MEUH'+@user_agent}
 

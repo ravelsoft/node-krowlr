@@ -3,7 +3,7 @@
     "description" : "A fast asynchrone crawler",
     "tags" : ["crawler","http"],
     "author" : "Félix Delval <felix.delval@ravelsoft.com> (http://www.ravelsoft.com)",
-    "version" : "0.0.1",
+    "version" : "0.0.2",
     "engines"     : {"node": "0.4.x | 0.5.x | 0.6.x"},
     "main" : "./krowlr",
      "dependencies" : { 
