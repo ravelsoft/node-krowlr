@@ -1,0 +1,143 @@
+{ DefaultHandler, Parser} = require \htmlparser
+fs = require \fs
+request = require \request
+soupselect = require \soupselect
+url = require \url
+winston = require \winston
+util = require \util
+events = require \events
+
+select = soupselect.select
+handler = new DefaultHandler
+parser = new Parser handler
+
+global.error = winston.error
+global.info = winston.info
+global.warn = winston.warn
+
+simplify = (_url) ->
+    o = url.parse _url
+    return o.protocol + '//' + o.host + o.path
+
+class PageReference
+    counter = 0
+    ->
+        counter := counter + 1
+        @id = counter
+        @links = []
+        @tries = 1
+        @title = ''
+        @url = ''
+
+    add_link: (ref) ->
+        if ref not of @links and @id !== ref.id
+            @links.push ref
+
+class Crawler extends events.EventEmitter
+    ->
+        super ...
+
+        @max_depth =  5
+        @start_urls = []
+        @accepted_domains = []
+        @max_retries = 3
+        @retry_wait = 1000
+        @processed = {}
+        @user_agent = 'SCHMÜTZÏ'
+        @to_download = 0
+        @cache_directory = '.cache'
+
+
+    add_url: function (_url)
+        @start_urls.push _url
+        o = url.parse _url
+        if o.host not of @accepted_domains
+            @accepted_domains.push o.host
+            @to_download += 1
+        return
+
+    add_urls: function (url_list)
+        for u of url_list
+            @add_url u
+        return
+
+    fetch: function (_url, depth = 0)
+        o = url.parse _url
+        cachefname = @cache_directory + '/' + (o.host + o.path).replace /\//g, '.'
+
+        options = {uri: _url, 'User-Agent': 'MEUH'+@user_agent}
+
+        try
+            (err, fdata) <~ fs.readFile cachefname, 'utf-8'
+
+            if err
+                info "*** Fetching #{_url} #{@to_download}"
+                (err, response, body) <~ request options
+                if err
+                    if @processed[_url].tries < @max_retries
+                        @processed[_url].tries += 1
+                        setTimeout (~> @fetch _url, depth), @retry_wait
+                        return
+                    else
+                        @to_download -= 1
+                        info "*** Max retries reached #{_url}"
+                        return
+                fs.writeFile cachefname, body, 'utf-8', null
+
+                @to_download -= 1
+                @parse body, _url, depth + 1
+            else
+                @to_download -= 1
+                @parse fdata, _url, depth + 1
+        catch e
+            error e
+
+    parse: function (body, base_url, depth)
+        parser.parseComplete body
+        info "*** Parsing #{base_url} #{@to_download}"
+        query = select handler.dom, 'title'
+        query.forEach (elt) ~>
+            if elt.hasOwnProperty 'children'
+                @processed[base_url].title = elt.children[0].raw
+            else
+                o = url.parse base_url
+                @processed[base_url].title = o.pathname
+   
+        i = 0
+
+        m = select handler.dom, 'a'
+        m.forEach (elt) ~>
+           if elt.hasOwnProperty 'attribs'
+                if elt.attribs.hasOwnProperty 'href' and elt.attribs.href?
+                    newurl = url.resolve base_url, elt.attribs.href
+                    o = url.parse newurl
+                    if o.host of @accepted_domains
+                        newurl = simplify newurl
+                        if not @processed.hasOwnProperty newurl
+                            if depth <= @max_depth
+                                ref = new PageReference!
+                                ref.url = newurl
+                                @processed[newurl] = ref
+                                @to_download += 1
+                                @fetch newurl, depth
+                            else
+                                return
+                        else
+                            ref = @processed[newurl]
+                        @processed[base_url].add_link ref
+                        
+        if @to_download === 0
+            info '*** Ending crawling'
+            @emit 'exit'
+
+    start: function ()
+        info '*** Starting crawling'
+        for _url of @start_urls
+            _url = simplify _url
+            ref = new PageReference!
+            ref.url = _url
+            @processed[_url] = ref
+            @fetch _url
+        return ref
+
+exports.Crawler = Crawler

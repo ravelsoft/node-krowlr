@@ -1,0 +1,12 @@
+syntax: glob
+*.js
+node_modules
+npm-install*.sh
+*.dot
+node_modules
+npm-debug.log
+npm-install*.sh
+*.dot
+
+.cache
+node_modules
