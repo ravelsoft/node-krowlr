@@ -1,0 +1,47 @@
+fs = require \fs
+url = require \url
+
+APPLICATION_NAME = \krowlr
+
+create_dir = (dir) ->
+    if path.existsSync dir
+        stats = fs.lstatSync dir
+        if not stats.isDirectory!
+            error "Invalid cache directory #{dir}"
+    else
+        info "Creating cache directory #{dir}"
+        fs.mkdirSync dir
+
+
+
+class BasicCache
+
+    ->
+        @cache_directory = '.cache/'
+        @cache_path = path.join process.env['HOME'], @cache_directory, APPLICATION_NAME
+
+        create_dir path.join process.env['HOME'], @cache_directory
+        create_dir path.join @cache_path
+
+    init: function()
+        create_dir path.join process.env['HOME'], @cache_directory
+        create_dir path.join @cache_path
+        info "Using cache folder #{@cache_path}"
+
+    name: function (_url)
+        o = url.parse _url
+        return @cache_path + '/' + (o.host + o.path).replace /\//g, '.'
+
+    get: function (_url, cb)
+        fname = @name _url
+
+        (err, fdata) <~ fs.readFile fname, 'utf-8'
+
+        process.nextTick ->
+            cb err, fdata
+
+    save: function (_url, body)
+        fname = @name _url
+        fs.writeFile fname, body, 'utf-8', null
+
+exports.BasicCache = BasicCache

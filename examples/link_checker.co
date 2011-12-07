@@ -1,0 +1,14 @@
+#!/usr/bin/env coco
+r = require \../krowlr
+optimist = require \optimist
+argv = optimist.argv
+
+function errors (url, response, parent_url)
+    console.log "#{response.statusCode},#{parent_url},#{url}" 
+
+crawler = new r.Crawler!
+crawler.use_cache = false
+crawler.add_url argv._[0]
+crawler.on_http_error = errors
+crawler.start!
+

@@ -8,30 +8,17 @@ url = require \url
 util = require \util
 winston = require \winston
 
+basic_cache = require \./lib/basic_cache
 
 select = soupselect.select
 handler = new DefaultHandler
 parser = new Parser handler
 
-global.error = winston.error
-global.info = winston.info
-global.warn = winston.warn
-
-APPLICATION_NAME = 'skrolr'
+APPLICATION_NAME = 'krowlr'
 
 simplify = (_url) ->
     o = url.parse _url
     return o.protocol + '//' + o.host + o.path
-
-create_dir = (dir) ->
-    if path.existsSync dir
-        stats = fs.lstatSync dir
-        if not stats.isDirectory!
-            error "Invalid cache directory #{dir}"
-    else
-        info "Creating cache directory #{dir}"
-        fs.mkdirSync dir
-
 
 class PageReference
     counter = 0
@@ -47,25 +34,39 @@ class PageReference
         if ref not of @links and @id !== ref.id
             @links.push ref
 
+
 class Crawler extends events.EventEmitter
     ->
         super ...
 
         @max_depth =  5
+        @depth_outside_domains = 0
         @start_urls = []
         @accepted_domains = []
         @max_retries = 3
         @retry_wait = 1000
         @processed = {}
+        @processed_outside = {}
         @user_agent = 'SCHMÜTZÏ'
         @to_download = 0
-        @cache_directory = '.cache/'
-        @cache_path = path.join process.env['HOME'], @cache_directory, APPLICATION_NAME
+        @use_cache = true
+        @cache = new basic_cache.BasicCache!
 
-        create_dir path.join process.env['HOME'], @cache_directory
-        create_dir path.join @cache_path
-        
-        info "Using cache folder #{@cache_path}"
+        @logger = new winston.Logger {
+            transports: [ new (winston.transports.Console) {
+                level: 'warn'
+                colorize: 'true'
+            }]
+        }
+
+        @info = @logger.info
+        @error = @logger.error
+        @warn = @logger.warn
+
+        @on_http_error = null
+
+    log_level: function (level)
+        @logger.transports.console.level = level
 
     add_url: function (_url)
         @start_urls.push _url
@@ -80,40 +81,48 @@ class Crawler extends events.EventEmitter
             @add_url u
         return
 
-    fetch: function (_url, depth = 0)
-        o = url.parse _url
-        cachefname = @cache_path + '/' + (o.host + o.path).replace /\//g, '.'
 
-        options = {uri: _url, 'User-Agent': 'MEUH'+@user_agent}
-
-        try
-            (err, fdata) <~ fs.readFile cachefname, 'utf-8'
-
-            if err
-                info "*** Fetching #{_url} #{@to_download}"
-                (err, response, body) <~ request options
-                if err
-                    if @processed[_url].tries < @max_retries
-                        @processed[_url].tries += 1
-                        setTimeout (~> @fetch _url, depth), @retry_wait
-                        return
-                    else
-                        @to_download -= 1
-                        info "*** Max retries reached #{_url}"
-                        return
-                fs.writeFile cachefname, body, 'utf-8', null
-
-                @to_download -= 1
-                @parse body, _url, depth + 1
+    fetch_download: function (_url, depth,parent_url, cachefname = '')
+        @info "*** Fetching #{_url} #{@to_download}"
+        (err, response, body) <~ request _url
+        if err
+            if @processed[_url].tries < @max_retries
+                @processed[_url].tries += 1
+                setTimeout (~> @fetch _url, depth), @retry_wait
+                return
             else
                 @to_download -= 1
-                @parse fdata, _url, depth + 1
-        catch e
-            error e
+                @warn "*** Max retries reached #{_url}"
+                return
+        if @use_cache
+            fs.writeFile cachefname, body, 'utf-8', null
+
+        if response.statusCode != 200 and @on_http_error
+            @on_http_error _url, response, parent_url
+
+        @to_download -= 1
+        @parse body, _url, depth + 1
+
+    fetch_cache: function (_url, depth, parent_url) 
+        @cache.get _url, ->
+            if err
+                @fetch_download _url, depth, parent_url, cachefname
+            else
+                @to_download -= 1
+                process.nextTick ~>
+                    @parse fdata, _url, depth + 1
+
+    fetch: function (_url, depth = 0, parent_url = null)
+
+        if @use_cache
+            @fetch_cache _url, depth, parent_url
+        else
+            @fetch_download _url, depth, parent_url
 
     parse: function (body, base_url, depth)
         parser.parseComplete body
-        info "*** Parsing #{base_url} #{@to_download}"
+        @info "*** Parsing #{base_url} #{@to_download}"
+        base_host = url.parse(base_url).host
         query = select handler.dom, 'title'
         query.forEach (elt) ~>
             if elt.hasOwnProperty 'children'
@@ -122,8 +131,6 @@ class Crawler extends events.EventEmitter
                 o = url.parse base_url
                 @processed[base_url].title = o.pathname
    
-        i = 0
-
         m = select handler.dom, 'a'
         m.forEach (elt) ~>
            if elt.hasOwnProperty 'attribs'
@@ -131,32 +138,55 @@ class Crawler extends events.EventEmitter
                     newurl = url.resolve base_url, elt.attribs.href
                     o = url.parse newurl
                     if o.host of @accepted_domains
-                        newurl = simplify newurl
                         if not @processed.hasOwnProperty newurl
                             if depth <= @max_depth
                                 ref = new PageReference!
                                 ref.url = newurl
                                 @processed[newurl] = ref
                                 @to_download += 1
-                                @fetch newurl, depth
+                                process.nextTick ~>
+                                    @fetch newurl, depth, base_url
                             else
                                 return
                         else
                             ref = @processed[newurl]
                         @processed[base_url].add_link ref
+                    else
+                        if @depth_outside_domains > 0
+                            if not @processed_outside.hasOwnProperty newurl
+                                if base_host of @accepted_domains
+                                    newdepth = 0
+                                else 
+                                    newdepth = depth
+                                if depth <= @depth_outside_domains
+                                    ref = new PageReference!
+                                    ref.url = newurl
+                                    @processed_outside[newurl] = ref
+                                    @to_download += 1
+                                    process.nextTick ~>
+                                        @fetch newurl, newdepth, base_url
+                                
                         
         if @to_download === 0
-            info '*** Ending crawling'
+            @info '*** Ending crawling'
             @emit 'exit'
 
+
     start: function ()
-        info '*** Starting crawling'
+        if @use_cache
+            <- @cache.init
+            @launch!
+        else
+            @launch!
+
+    launch: function()
+        @info '*** Starting crawling'
         for _url of @start_urls
             _url = simplify _url
             ref = new PageReference!
             ref.url = _url
             @processed[_url] = ref
-            @fetch _url
-        return ref
+            process.nextTick ~>
+                @fetch _url
 
 exports.Crawler = Crawler
