@@ -1,0 +1,21 @@
+#!/usr/bin/env coco
+
+r = require \../krowlr
+optimist = require \optimist
+argv = optimist.argv
+
+process.on 'exit' ->
+    console.log "digraph ravelsoft {\n"
+    for url in crawler.processed
+        node = crawler.processed[url]
+        console.log "#{node.id} [label=\"#{url}\"]"
+        for link of node.links
+            console.log "#{node.id} -> #{link.id}"
+    console.log "}"
+
+
+crawler = new r.Crawler!
+crawler.max_depth = 3
+crawler.add_url argv._[0]
+crawler.start!
+

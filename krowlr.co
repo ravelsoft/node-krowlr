@@ -95,7 +95,7 @@ class Crawler extends events.EventEmitter
                 @warn "*** Max retries reached #{_url}"
                 return
         if @use_cache
-            fs.writeFile cachefname, body, 'utf-8', null
+            @cache.save _url, body
 
         if response.statusCode != 200 and @on_http_error
             @on_http_error _url, response, parent_url
@@ -104,13 +104,13 @@ class Crawler extends events.EventEmitter
         @parse body, _url, depth + 1
 
     fetch_cache: function (_url, depth, parent_url) 
-        @cache.get _url, ->
+        @cache.get _url, (err, data) ~>
             if err
-                @fetch_download _url, depth, parent_url, cachefname
+                @fetch_download _url, depth, parent_url
             else
                 @to_download -= 1
                 process.nextTick ~>
-                    @parse fdata, _url, depth + 1
+                    @parse data, _url, depth + 1
 
     fetch: function (_url, depth = 0, parent_url = null)
 
@@ -174,7 +174,7 @@ class Crawler extends events.EventEmitter
 
     start: function ()
         if @use_cache
-            <- @cache.init
+            <~ @cache.init
             @launch!
         else
             @launch!
