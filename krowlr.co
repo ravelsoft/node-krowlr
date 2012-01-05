@@ -63,7 +63,7 @@ class Crawler extends events.EventEmitter
         }
     
         @accepted_extensions = ['html', 'htm', 'php']
-        @accepted_mime_type = ['text/html']
+        @accepted_mimetypes = ['text/html']
 
         @info = @logger.info
         @error = @logger.error
@@ -170,17 +170,21 @@ class Crawler extends events.EventEmitter
                     if o.host of @accepted_domains
                         if not @processed.hasOwnProperty newurl
                             if depth > @max_depth
+                                # Too deep, we leave
                                 return
 
-                            if @rules == [] or @process_rule newurl
-                                ref = new PageReference!
-                                ref.url = newurl
-                                @processed[newurl] = ref
-                                @to_download += 1
-                                if @wait_time > 0
-                                    setTimeout (~> @fetch newurl, depth, base_url), @wait_time
-                                else
-                                    @fetch newurl, depth, base_url
+                            if @rules != [] and not @process_rule newurl
+                                # Sorry, you were bounced
+                                return
+                            
+                            ref = new PageReference!
+                            ref.url = newurl
+                            @processed[newurl] = ref
+                            @to_download += 1
+                            if @wait_time > 0
+                                setTimeout (~> @fetch newurl, depth, base_url), @wait_time
+                            else
+                                @fetch newurl, depth, base_url
                         else
                             ref = @processed[newurl]
                         @processed[base_url].add_link ref
