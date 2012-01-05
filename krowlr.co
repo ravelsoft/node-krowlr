@@ -20,6 +20,7 @@ simplify = (_url) ->
     o = url.parse _url
     return o.protocol + '//' + o.host + o.path
 
+
 class PageReference
     counter = 0
     ->
@@ -51,13 +52,17 @@ class Crawler extends events.EventEmitter
         @to_download = 0
         @use_cache = true
         @cache = new basic_cache.BasicCache!
+        @rules = []
 
         @logger = new winston.Logger {
             transports: [ new (winston.transports.Console) {
-                level: 'warn'
+                level: 'info'
                 colorize: 'true'
             }]
         }
+    
+        @accepted_extensions = ['html', 'htm', 'php']
+        @accepted_mime_type = ['text/html']
 
         @info = @logger.info
         @error = @logger.error
@@ -81,6 +86,23 @@ class Crawler extends events.EventEmitter
             @add_url u
         return
 
+    process_rule: function (_url)
+        o = url.parse _url
+        result = true
+        for rule of @rules
+            if o.host.match(rule[0])
+                if _url.match(rule[1])
+                    result = result and true
+                else
+                    result = result and false
+        return result
+            
+    accept_mimetype: function (mimetype)
+        for type of @accepted_mimetypes
+            if mimetype.indexOf type >= 0
+                return true
+        return false
+
 
     fetch_download: function (_url, depth,parent_url, cachefname = '')
         @info "*** Fetching #{_url} #{@to_download}"
@@ -94,14 +116,21 @@ class Crawler extends events.EventEmitter
                 @to_download -= 1
                 @warn "*** Max retries reached #{_url}"
                 return
-        if @use_cache
-            @cache.save _url, body
 
         if response.statusCode != 200 and @on_http_error
             @on_http_error _url, response, parent_url
+            @to_download -= 1
+            return
 
-        @to_download -= 1
-        @parse body, _url, depth + 1
+        if @accept_mimetype response.headers['content-type']
+            if @use_cache
+                @cache.save _url, body
+
+            if response.statusCode != 200 and @on_http_error
+                @on_http_error _url, response, parent_url
+
+            @to_download -= 1
+            @parse body, _url, depth + 1
 
     fetch_cache: function (_url, depth, parent_url) 
         @cache.get _url, (err, data) ~>
@@ -109,11 +138,9 @@ class Crawler extends events.EventEmitter
                 @fetch_download _url, depth, parent_url
             else
                 @to_download -= 1
-                process.nextTick ~>
-                    @parse data, _url, depth + 1
+                @parse data, _url, depth + 1
 
     fetch: function (_url, depth = 0, parent_url = null)
-
         if @use_cache
             @fetch_cache _url, depth, parent_url
         else
@@ -136,18 +163,22 @@ class Crawler extends events.EventEmitter
            if elt.hasOwnProperty 'attribs'
                 if elt.attribs.hasOwnProperty 'href' and elt.attribs.href?
                     newurl = url.resolve base_url, elt.attribs.href
+                    newurl = newurl.replace /&amp;/g, '&'
+                    newurl = simplify newurl
                     o = url.parse newurl
                     if o.host of @accepted_domains
                         if not @processed.hasOwnProperty newurl
-                            if depth <= @max_depth
+                            if depth > @max_depth
+                                return
+
+                            if 
+
+                            if @rules == [] or @process_rule newurl
                                 ref = new PageReference!
                                 ref.url = newurl
                                 @processed[newurl] = ref
                                 @to_download += 1
-                                process.nextTick ~>
-                                    @fetch newurl, depth, base_url
-                            else
-                                return
+                                @fetch newurl, depth, base_url
                         else
                             ref = @processed[newurl]
                         @processed[base_url].add_link ref
@@ -163,8 +194,7 @@ class Crawler extends events.EventEmitter
                                     ref.url = newurl
                                     @processed_outside[newurl] = ref
                                     @to_download += 1
-                                    process.nextTick ~>
-                                        @fetch newurl, newdepth, base_url
+                                    @fetch newurl, newdepth, base_url
                                 
                         
         if @to_download === 0
@@ -186,7 +216,6 @@ class Crawler extends events.EventEmitter
             ref = new PageReference!
             ref.url = _url
             @processed[_url] = ref
-            process.nextTick ~>
-                @fetch _url
+            @fetch _url
 
 exports.Crawler = Crawler

@@ -1,0 +1,44 @@
+mongodb = require \mongodb
+
+
+class Cache
+
+    ->
+        @host = 'localhost'
+        @port = 27017
+        @database = 'krowlr'
+        @collection_name = 'pages'
+
+    create_document: function (_url, body)
+        doc = 
+            url: _url
+            body: body
+        return doc
+
+    init: function(cb)
+        connection = new mongodb.Server @host, @port
+        db = new mongodb.Db @database, connection
+        db.open (err, db) ~>
+            if err
+                console.log 'Cannot connect to database'
+                process.exit!
+            db.createCollection @collection_name, (err, collection) ~>
+                if err
+                    console.log 'Cannot access collection'
+                    process.exit!
+                @collection = collection
+                cb!
+
+    get: function(_url, cb)
+        (err, document) <~ @collection.findOne({"url":_url})
+        if not document
+            err = true
+            cb err, null
+        else
+            cb err, document.body 
+        
+    save: function(_url, body)
+        doc = @create_document _url, body 
+        @collection.save doc 
+
+exports.Cache = Cache

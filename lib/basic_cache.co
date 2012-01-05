@@ -34,11 +34,8 @@ class BasicCache
 
     get: function (_url, cb)
         fname = @name _url
-
         (err, fdata) <~ fs.readFile fname, 'utf-8'
-
-        process.nextTick ->
-            cb err, fdata
+        cb err, fdata
 
     save: function (_url, body)
         fname = @name _url

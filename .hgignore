@@ -7,6 +7,6 @@ node_modules
 npm-debug.log
 npm-install*.sh
 *.dot
-
+scripts
 .cache
 node_modules
