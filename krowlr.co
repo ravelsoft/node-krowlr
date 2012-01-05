@@ -53,6 +53,7 @@ class Crawler extends events.EventEmitter
         @use_cache = true
         @cache = new basic_cache.BasicCache!
         @rules = []
+        @wait_time = 0
 
         @logger = new winston.Logger {
             transports: [ new (winston.transports.Console) {
@@ -171,14 +172,15 @@ class Crawler extends events.EventEmitter
                             if depth > @max_depth
                                 return
 
-                            if 
-
                             if @rules == [] or @process_rule newurl
                                 ref = new PageReference!
                                 ref.url = newurl
                                 @processed[newurl] = ref
                                 @to_download += 1
-                                @fetch newurl, depth, base_url
+                                if @wait_time > 0
+                                    setTimeout (~> @fetch newurl, depth, base_url), @wait_time
+                                else
+                                    @fetch newurl, depth, base_url
                         else
                             ref = @processed[newurl]
                         @processed[base_url].add_link ref
@@ -194,7 +196,10 @@ class Crawler extends events.EventEmitter
                                     ref.url = newurl
                                     @processed_outside[newurl] = ref
                                     @to_download += 1
-                                    @fetch newurl, newdepth, base_url
+                                    if @wait_time > 0
+                                        setTimeout (~> @fetch newurl, newdepth, base_url), @wait_time
+                                    else
+                                        @fetch newurl, newdepth, base_url
                                 
                         
         if @to_download === 0
